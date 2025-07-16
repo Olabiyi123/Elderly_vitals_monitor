@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "889554647988",
+    "project_id": "elderly-vitals-monitor",
+    "storage_bucket": "elderly-vitals-monitor.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889554647988:android:306fe813bde76d492b90e1",
+        "android_client_info": {
+          "package_name": "com.example.elderly_vitals_monitor"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3zZEm7FLLjPqkIuI3lee50TVqwUdMXtU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:889554647988:android:b43e2a170cbff0aa2b90e1",
+        "android_client_info": {
+          "package_name": "com.example.elderlyvitals"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3zZEm7FLLjPqkIuI3lee50TVqwUdMXtU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
