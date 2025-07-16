@@ -1,4 +1,4 @@
-package com.example.elderly_vitals_monitor
+package com.example.elderlyvitals
 
 import io.flutter.embedding.android.FlutterActivity
 
