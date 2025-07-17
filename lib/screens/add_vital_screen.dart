@@ -14,42 +14,23 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
   final _firestoreService = FirestoreService();
 
   void _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    final hr = int.parse(_heartRateController.text.trim());
-    final temp = double.parse(_tempController.text.trim());
+    final hr = int.tryParse(_heartRateController.text.trim());
+    final temp = double.tryParse(_tempController.text.trim());
     final bp = _bpController.text.trim();
 
-    // Abnormal checks
-    final isAbnormalHR = hr < 50 || hr > 120;
-    final isAbnormalTemp = temp < 35.0 || temp > 38.0;
-
-    if (isAbnormalHR || isAbnormalTemp) {
-      final warning = [
-        if (isAbnormalHR) "⚠️ Heart Rate is outside safe range.",
-        if (isAbnormalTemp) "⚠️ Temperature is outside safe range.",
-      ].join('\n');
-
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text("Abnormal Vitals"),
-          content: Text(warning),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text("Save Anyway"),
-            ),
-          ],
-        ),
-      );
-
-      if (proceed != true) return;
+    if (hr == null || temp == null || bp.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Invalid or empty fields")));
+      return;
     }
+
+    // Optional: show loading indicator while getting location + saving
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Center(child: CircularProgressIndicator()),
+    );
 
     try {
       await _firestoreService.addVital(
@@ -57,11 +38,14 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
         bloodPressure: bp,
         temperature: temp.toStringAsFixed(1),
       );
+
+      Navigator.pop(context); // Close loading dialog
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text("Vitals saved")));
-      Navigator.pop(context);
+      ).showSnackBar(SnackBar(content: Text("Vitals saved!")));
+      Navigator.pop(context); // Go back to Dashboard
     } catch (e) {
+      Navigator.pop(context); // Close loading dialog
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Error: $e")));
