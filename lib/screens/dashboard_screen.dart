@@ -64,19 +64,76 @@ class DashboardScreen extends StatelessWidget {
                 final latitude = data['latitude'];
                 final longitude = data['longitude'];
 
+                final String heartRateStr = data['heartRate'].toString();
+                final String tempStr = data['temperature'].toString();
+                final String bpStr = data['bloodPressure'].toString();
+
+                final int heartRate = int.tryParse(heartRateStr) ?? 0;
+                final double temperature = double.tryParse(tempStr) ?? 0.0;
+
+                // Handle BP format "120/80"
+                int? systolic;
+                int? diastolic;
+                if (bpStr.contains("/")) {
+                  final parts = bpStr.split("/");
+                  systolic = int.tryParse(parts[0]);
+                  diastolic = parts.length > 1 ? int.tryParse(parts[1]) : null;
+                }
+
+                Color getHRColor() {
+                  if (heartRate > 120) return Colors.red;
+                  if (heartRate < 50) return Colors.orange;
+                  return Colors.black;
+                }
+
+                Color getTempColor() {
+                  if (temperature > 38.0 || temperature < 35.0)
+                    return Colors.red;
+                  return Colors.black;
+                }
+
+                Color getBPColor() {
+                  if ((systolic != null && systolic > 140) ||
+                      (diastolic != null && diastolic > 90))
+                    return Colors.red;
+                  if ((systolic != null && systolic < 90) ||
+                      (diastolic != null && diastolic < 60))
+                    return Colors.orange;
+                  return Colors.black;
+                }
+
                 return Card(
                   margin: EdgeInsets.symmetric(vertical: 8),
                   elevation: 2,
                   child: ListTile(
-                    title: Text("Heart Rate: ${data['heartRate']} bpm"),
+                    title: Text(
+                      "Heart Rate: $heartRate bpm",
+                      style: TextStyle(
+                        color: getHRColor(),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text("Blood Pressure: ${data['bloodPressure']}"),
-                        Text("Temperature: ${data['temperature']} °C"),
-                        if (latitude != null && longitude != null)
+                        Text(
+                          "Blood Pressure: $bpStr",
+                          style: TextStyle(
+                            color: getBPColor(),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text(
+                          "Temperature: $temperature °C",
+                          style: TextStyle(
+                            color: getTempColor(),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        if (data['latitude'] != null &&
+                            data['longitude'] != null)
                           Text(
-                            "Location: ${latitude.toStringAsFixed(4)}, ${longitude.toStringAsFixed(4)}",
+                            "Location: ${data['latitude'].toStringAsFixed(4)}, ${data['longitude'].toStringAsFixed(4)}",
                           ),
                         SizedBox(height: 4),
                         Text(
