@@ -1,51 +1,93 @@
-import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:elderly_vitals_monitor/screens/login_screen.dart';
+import 'package:flutter/material.dart';
 
 class DashboardScreen extends StatelessWidget {
+  final user = FirebaseAuth.instance.currentUser;
+
+  Stream<QuerySnapshot> _getVitalsStream() {
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(user!.uid)
+        .collection('vitals')
+        .orderBy('timestamp', descending: true)
+        .snapshots();
+  }
+
   void _signOut(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => LoginScreen()),
-    );
+    Navigator.pushReplacementNamed(context, '/login');
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Dashboard'),
+        title: Text('Vitals Dashboard'),
         actions: [
           IconButton(
             icon: Icon(Icons.logout),
-            onPressed: () => _signOut(context),
             tooltip: 'Sign Out',
+            onPressed: () => _signOut(context),
           ),
         ],
       ),
       body: Padding(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Welcome, ${user?.email ?? 'User'}!',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-            ),
-            SizedBox(height: 40),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/add-vitals'),
-              icon: Icon(Icons.favorite),
-              label: Text("Add Vitals"),
-              style: ElevatedButton.styleFrom(
-                padding: EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-              ),
-            ),
-          ],
+        padding: EdgeInsets.all(12),
+        child: StreamBuilder<QuerySnapshot>(
+          stream: _getVitalsStream(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(child: Text("Error loading vitals."));
+            }
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Center(child: CircularProgressIndicator());
+            }
+
+            final vitals = snapshot.data!.docs;
+
+            if (vitals.isEmpty) {
+              return Center(child: Text("No vitals recorded yet."));
+            }
+
+            return ListView.builder(
+              itemCount: vitals.length,
+              itemBuilder: (context, index) {
+                final data = vitals[index].data() as Map<String, dynamic>;
+
+                final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+                final time = timestamp != null
+                    ? "${timestamp.toLocal().toString().split('.')[0]}"
+                    : "Unknown time";
+
+                return Card(
+                  margin: EdgeInsets.symmetric(vertical: 8),
+                  elevation: 2,
+                  child: ListTile(
+                    title: Text("Heart Rate: ${data['heartRate']} bpm"),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Blood Pressure: ${data['bloodPressure']}"),
+                        Text("Temperature: ${data['temperature']} °C"),
+                        SizedBox(height: 4),
+                        Text(
+                          "Logged at: $time",
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.pushNamed(context, '/add-vitals'),
+        child: Icon(Icons.add),
+        tooltip: "Add Vitals",
       ),
     );
   }
