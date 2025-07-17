@@ -19,6 +19,15 @@ class DashboardScreen extends StatelessWidget {
     Navigator.pushReplacementNamed(context, '/login');
   }
 
+  Future<String> _getFirstName() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user!.uid)
+        .get();
+    return doc['firstName'] ?? 'User';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -36,9 +45,15 @@ class DashboardScreen extends StatelessWidget {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            Text(
-              'Welcome, ${user?.email ?? 'User'}!',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            FutureBuilder<String>(
+              future: _getFirstName(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return Text('Welcome...');
+                return Text(
+                  'Welcome back, ${snapshot.data}!',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                );
+              },
             ),
             SizedBox(height: 20),
             Expanded(

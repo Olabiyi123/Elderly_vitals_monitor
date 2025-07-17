@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -18,16 +19,30 @@ class AuthService {
   }
 
   // Register
-  Future<User?> register(String email, String password) async {
+  Future<User?> register(
+    String email,
+    String password,
+    String firstName,
+    String lastName,
+  ) async {
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(credential.user!.uid)
+          .set({
+            'firstName': firstName,
+            'lastName': lastName,
+            'email': email,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
       return credential.user;
     } catch (e) {
       print('Register error: $e');
-      return null;
+      throw e;
     }
   }
 

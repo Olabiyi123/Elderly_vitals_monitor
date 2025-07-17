@@ -8,6 +8,8 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService = AuthService();
@@ -17,8 +19,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final user = await _authService.register(
         _emailController.text.trim(),
         _passwordController.text.trim(),
+        _firstNameController.text.trim(),
+        _lastNameController.text.trim(),
       );
       if (user != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Registration successful')));
         Navigator.pushReplacementNamed(context, '/dashboard');
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -48,6 +55,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   textAlign: TextAlign.center,
                 ),
                 SizedBox(height: 20),
+                TextField(
+                  controller: _firstNameController,
+                  decoration: InputDecoration(labelText: "First Name"),
+                ),
+                SizedBox(height: 10),
+
+                TextField(
+                  controller: _lastNameController,
+                  decoration: InputDecoration(labelText: "Last Name"),
+                ),
+                SizedBox(height: 10),
                 TextFormField(
                   controller: _emailController,
                   decoration: InputDecoration(
