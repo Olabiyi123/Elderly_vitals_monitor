@@ -7,48 +7,34 @@ class AddVitalScreen extends StatefulWidget {
 }
 
 class _AddVitalScreenState extends State<AddVitalScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _heartRateController = TextEditingController();
   final _bpController = TextEditingController();
   final _tempController = TextEditingController();
   final _firestoreService = FirestoreService();
 
   void _submit() async {
-    final hrText = _heartRateController.text.trim();
-    final tempText = _tempController.text.trim();
+    if (!_formKey.currentState!.validate()) return;
 
-    // Basic checks
-    if (hrText.isEmpty || tempText.isEmpty || _bpController.text.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('All fields are required')));
-      return;
-    }
+    final hr = int.parse(_heartRateController.text.trim());
+    final temp = double.parse(_tempController.text.trim());
+    final bp = _bpController.text.trim();
 
-    final int? heartRate = int.tryParse(hrText);
-    final double? temperature = double.tryParse(tempText);
-
-    if (heartRate == null || temperature == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Invalid number format')));
-      return;
-    }
-
-    // Check abnormal values
-    final isAbnormalHR = heartRate > 120 || heartRate < 50;
-    final isAbnormalTemp = temperature > 38.0 || temperature < 35.0;
+    // Abnormal checks
+    final isAbnormalHR = hr < 50 || hr > 120;
+    final isAbnormalTemp = temp < 35.0 || temp > 38.0;
 
     if (isAbnormalHR || isAbnormalTemp) {
-      final warningMsg = [
-        if (isAbnormalHR) "⚠️ Heart Rate is abnormal",
-        if (isAbnormalTemp) "⚠️ Temperature is abnormal",
-      ].join("\n");
+      final warning = [
+        if (isAbnormalHR) "⚠️ Heart Rate is outside safe range.",
+        if (isAbnormalTemp) "⚠️ Temperature is outside safe range.",
+      ].join('\n');
 
-      final shouldProceed = await showDialog<bool>(
+      final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text("Abnormal Vitals Detected"),
-          content: Text(warningMsg),
+          title: Text("Abnormal Vitals"),
+          content: Text(warning),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -62,24 +48,23 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
         ),
       );
 
-      if (shouldProceed != true) return;
+      if (proceed != true) return;
     }
 
     try {
       await _firestoreService.addVital(
-        heartRate: hrText,
-        bloodPressure: _bpController.text.trim(),
-        temperature: tempText,
+        heartRate: hr.toString(),
+        bloodPressure: bp,
+        temperature: temp.toStringAsFixed(1),
       );
-
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Vitals saved!')));
+      ).showSnackBar(SnackBar(content: Text("Vitals saved")));
       Navigator.pop(context);
     } catch (e) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
     }
   }
 
@@ -89,53 +74,84 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
       appBar: AppBar(title: Text("Add Vitals")),
       body: Padding(
         padding: EdgeInsets.all(20),
-        child: Column(
-          children: [
-            TextField(
-              controller: _heartRateController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: "Heart Rate (bpm)"),
-            ),
-            TextField(
-              controller: _bpController,
-              decoration: InputDecoration(
-                labelText: "Blood Pressure (e.g. 120/80)",
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              Text(
+                "Enter today's vital signs",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-            ),
-            TextField(
-              controller: _tempController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: "Body Temperature (°C)"),
-            ),
-            SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () async {
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (_) => Center(child: CircularProgressIndicator()),
-                );
-                try {
-                  await _firestoreService.addVital(
-                    heartRate: _heartRateController.text.trim(),
-                    bloodPressure: _bpController.text.trim(),
-                    temperature: _tempController.text.trim(),
-                  );
-                  Navigator.pop(context); // close loading
-                  Navigator.pop(context); // go back
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text('Vitals saved!')));
-                } catch (e) {
-                  Navigator.pop(context); // close loading
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text('Failed: $e')));
-                }
-              },
-              child: Text("Save Vitals"),
-            ),
-          ],
+              SizedBox(height: 16),
+
+              // Heart Rate
+              TextFormField(
+                controller: _heartRateController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: "Heart Rate (bpm)",
+                  hintText: "e.g. 72",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (val) {
+                  final n = int.tryParse(val ?? '');
+                  if (n == null) return "Enter a valid number";
+                  if (n < 30 || n > 200) return "Unrealistic heart rate";
+                  return null;
+                },
+              ),
+
+              SizedBox(height: 16),
+
+              // Blood Pressure
+              TextFormField(
+                controller: _bpController,
+                decoration: InputDecoration(
+                  labelText: "Blood Pressure (e.g. 120/80)",
+                  hintText: "e.g. 120/80",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (val) {
+                  if (val == null || val.isEmpty) return "Enter BP";
+                  if (!RegExp(r'^\d{2,3}/\d{2,3}$').hasMatch(val)) {
+                    return "Format: 120/80";
+                  }
+                  return null;
+                },
+              ),
+
+              SizedBox(height: 16),
+
+              // Temperature
+              TextFormField(
+                controller: _tempController,
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: "Temperature (°C)",
+                  hintText: "e.g. 36.5",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (val) {
+                  final n = double.tryParse(val ?? '');
+                  if (n == null) return "Enter a valid temperature";
+                  if (n < 30.0 || n > 45.0) return "Unrealistic temperature";
+                  return null;
+                },
+              ),
+
+              SizedBox(height: 24),
+
+              ElevatedButton.icon(
+                onPressed: _submit,
+                icon: Icon(Icons.save),
+                label: Text("Save Vitals"),
+                style: ElevatedButton.styleFrom(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  textStyle: TextStyle(fontSize: 16),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
