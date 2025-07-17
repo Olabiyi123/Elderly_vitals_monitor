@@ -4,6 +4,7 @@ import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/add_vital_screen.dart';
+import 'screens/profile_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +24,7 @@ class ElderlyVitalsApp extends StatelessWidget {
         '/login': (context) => LoginScreen(),
         '/dashboard': (context) => DashboardScreen(),
         '/add-vitals': (context) => AddVitalScreen(),
+        '/profile': (context) => ProfileScreen(),
       },
     );
   }

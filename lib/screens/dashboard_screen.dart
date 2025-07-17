@@ -35,6 +35,11 @@ class DashboardScreen extends StatelessWidget {
         title: Text('Vitals Dashboard'),
         actions: [
           IconButton(
+            icon: Icon(Icons.account_circle),
+            tooltip: 'Profile',
+            onPressed: () => Navigator.pushNamed(context, '/profile'),
+          ),
+          IconButton(
             icon: Icon(Icons.logout),
             tooltip: 'Sign Out',
             onPressed: () => _signOut(context),
