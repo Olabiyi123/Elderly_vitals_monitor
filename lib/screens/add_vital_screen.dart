@@ -55,7 +55,33 @@ class _AddVitalScreenState extends State<AddVitalScreen> {
               decoration: InputDecoration(labelText: "Body Temperature (°C)"),
             ),
             SizedBox(height: 20),
-            ElevatedButton(onPressed: _submit, child: Text("Save Vitals")),
+            ElevatedButton(
+              onPressed: () async {
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => Center(child: CircularProgressIndicator()),
+                );
+                try {
+                  await _firestoreService.addVital(
+                    heartRate: _heartRateController.text.trim(),
+                    bloodPressure: _bpController.text.trim(),
+                    temperature: _tempController.text.trim(),
+                  );
+                  Navigator.pop(context); // close loading
+                  Navigator.pop(context); // go back
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('Vitals saved!')));
+                } catch (e) {
+                  Navigator.pop(context); // close loading
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('Failed: $e')));
+                }
+              },
+              child: Text("Save Vitals"),
+            ),
           ],
         ),
       ),

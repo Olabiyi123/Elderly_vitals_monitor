@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 class DashboardScreen extends StatelessWidget {
   final user = FirebaseAuth.instance.currentUser;
 
+  // Stream to fetch user's vitals from Firestore
   Stream<QuerySnapshot> _getVitalsStream() {
     return FirebaseFirestore.instance
         .collection('users')
@@ -60,6 +61,9 @@ class DashboardScreen extends StatelessWidget {
                     ? "${timestamp.toLocal().toString().split('.')[0]}"
                     : "Unknown time";
 
+                final latitude = data['latitude'];
+                final longitude = data['longitude'];
+
                 return Card(
                   margin: EdgeInsets.symmetric(vertical: 8),
                   elevation: 2,
@@ -70,6 +74,10 @@ class DashboardScreen extends StatelessWidget {
                       children: [
                         Text("Blood Pressure: ${data['bloodPressure']}"),
                         Text("Temperature: ${data['temperature']} °C"),
+                        if (latitude != null && longitude != null)
+                          Text(
+                            "Location: ${latitude.toStringAsFixed(4)}, ${longitude.toStringAsFixed(4)}",
+                          ),
                         SizedBox(height: 4),
                         Text(
                           "Logged at: $time",
