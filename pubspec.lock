@@ -25,6 +25,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.0"
+  awesome_notifications:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: master
+      resolved-ref: a2db4d620c3af9dcafda73d2efc4a3e484967ba1
+      url: "https://github.com/rafaelsetragni/awesome_notifications.git"
+    source: git
+    version: "0.10.1"
   boolean_selector:
     dependency: transitive
     description:
@@ -320,6 +329,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
+  intl:
+    dependency: transitive
+    description:
+      name: intl
+      sha256: "3df61194eb431efc39c4ceba583b95633a403f46c9fd341e550ce0bfa50e9aa5"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.20.2"
   leak_tracker:
     dependency: transitive
     description:

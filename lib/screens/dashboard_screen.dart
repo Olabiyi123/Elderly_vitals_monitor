@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -26,12 +27,65 @@ class DashboardScreen extends StatelessWidget {
     }
   }
 
+  Future<void> _handleTestNotification(BuildContext context) async {
+    final isAllowed = await AwesomeNotifications().isNotificationAllowed();
+    if (!isAllowed) {
+      final result = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Enable Notifications'),
+          content: Text(
+            'To receive alerts about vital events, please allow notifications.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Deny'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Allow'),
+            ),
+          ],
+        ),
+      );
+
+      if (result == true) {
+        await AwesomeNotifications().requestPermissionToSendNotifications();
+      } else {
+        return;
+      }
+    }
+
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        channelKey: 'geofence_alerts',
+        title: 'Test Alert',
+        body: 'This is a test notification from the dashboard screen.',
+        notificationLayout: NotificationLayout.Default,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Ensure permission check happens once
+    AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
+      if (!isAllowed) {
+        AwesomeNotifications().requestPermissionToSendNotifications();
+      }
+    });
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Vitals Dashboard'),
         actions: [
+          IconButton(
+            icon: Icon(Icons.notifications),
+            tooltip: 'Send Test Notification',
+            onPressed: () => _handleTestNotification(context),
+          ),
           IconButton(
             icon: Icon(Icons.account_circle),
             tooltip: 'Profile',
