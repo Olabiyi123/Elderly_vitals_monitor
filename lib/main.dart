@@ -6,8 +6,11 @@ import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/add_vital_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/notification_screen.dart';
+import 'screens/alerts_screen.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'services/location_polling_service.dart';
+import 'screens/geofence_settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +48,9 @@ class ElderlyVitalsApp extends StatelessWidget {
         '/dashboard': (context) => DashboardScreen(),
         '/add-vitals': (context) => AddVitalScreen(),
         '/profile': (context) => ProfileScreen(),
+        '/alerts': (context) => AlertsScreen(),
+        '/geofence-settings': (context) => GeofenceSettingsScreen(),
+        '/notifications': (_) => NotificationScreen(),
       },
     );
   }

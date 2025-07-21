@@ -7,13 +7,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:elderly_vitals_monitor/main.dart';
 
 void main() {
+  final user = FirebaseAuth.instance.currentUser;
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(ElderlyVitalsApp());
+    await tester.pumpWidget(ElderlyVitalsApp(isLoggedIn: user != null));
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);

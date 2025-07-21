@@ -4,8 +4,27 @@ import 'package:flutter/material.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
+  @override
+  _DashboardScreenState createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
   final user = FirebaseAuth.instance.currentUser;
+  final Set<String> _notifiedVitalIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _requestNotificationPermission();
+  }
+
+  void _requestNotificationPermission() async {
+    final isAllowed = await AwesomeNotifications().isNotificationAllowed();
+    if (!isAllowed) {
+      await AwesomeNotifications().requestPermissionToSendNotifications();
+    }
+  }
 
   Stream<QuerySnapshot> _getVitalsStream() {
     return FirebaseFirestore.instance
@@ -68,23 +87,58 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _sendAbnormalNotification(String title, String body) async {
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        channelKey: 'geofence_alerts',
+        title: title,
+        body: body,
+        notificationLayout: NotificationLayout.Default,
+      ),
+    );
+  }
+
+  Future<void> _logAbnormalAlertToFirestore(Map<String, dynamic> data) async {
+    final uid = user?.uid;
+    if (uid == null) return;
+
+    final alertsRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('alerts');
+
+    await alertsRef.add({
+      'heartRate': data['heartRate'],
+      'temperature': data['temperature'],
+      'bloodPressure': data['bloodPressure'],
+      'timestamp': data['timestamp'] ?? FieldValue.serverTimestamp(),
+      'latitude': data['latitude'],
+      'longitude': data['longitude'],
+      'notifiedByApp': true,
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Ensure permission check happens once
-    AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
-      if (!isAllowed) {
-        AwesomeNotifications().requestPermissionToSendNotifications();
-      }
-    });
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Vitals Dashboard'),
+        title: Text('Dashboard'),
         actions: [
           IconButton(
+            icon: Icon(Icons.warning_amber),
+            tooltip: 'View Alerts',
+            onPressed: () => Navigator.pushNamed(context, '/alerts'),
+          ),
+          IconButton(
+            icon: Icon(Icons.my_location),
+            tooltip: 'Edit Safe Zone',
+            onPressed: () => Navigator.pushNamed(context, '/geofence-settings'),
+          ),
+          IconButton(
             icon: Icon(Icons.notifications),
-            tooltip: 'Send Test Notification',
-            onPressed: () => _handleTestNotification(context),
+            tooltip: 'Notification Center',
+            onPressed: () => Navigator.pushNamed(context, '/notifications'),
           ),
           IconButton(
             icon: Icon(Icons.account_circle),
@@ -119,7 +173,9 @@ class DashboardScreen extends StatelessWidget {
             return ListView.builder(
               itemCount: vitals.length,
               itemBuilder: (context, index) {
-                final data = vitals[index].data() as Map<String, dynamic>;
+                final doc = vitals[index];
+                final data = doc.data() as Map<String, dynamic>;
+                final docId = doc.id;
                 final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
                 final time = timestamp != null
                     ? "${timestamp.toLocal().toString().split('.')[0]}"
@@ -130,6 +186,16 @@ class DashboardScreen extends StatelessWidget {
                 final isAbnormal =
                     (hr != null && (hr > 120 || hr < 50)) ||
                     (temp != null && (temp > 38.0 || temp < 35.0));
+
+                if (isAbnormal && !_notifiedVitalIds.contains(docId)) {
+                  _notifiedVitalIds.add(docId);
+
+                  final summary =
+                      'Abnormal vitals detected:\nHR: ${data['heartRate']} bpm\nTemp: ${data['temperature']} °C\nTime: $time';
+
+                  _sendAbnormalNotification("Health Alert", summary);
+                  _logAbnormalAlertToFirestore(data);
+                }
 
                 return Card(
                   shape: RoundedRectangleBorder(
