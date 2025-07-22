@@ -46,47 +46,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _handleTestNotification(BuildContext context) async {
-    final isAllowed = await AwesomeNotifications().isNotificationAllowed();
-    if (!isAllowed) {
-      final result = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text('Enable Notifications'),
-          content: Text(
-            'To receive alerts about vital events, please allow notifications.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text('Deny'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text('Allow'),
-            ),
-          ],
-        ),
-      );
-
-      if (result == true) {
-        await AwesomeNotifications().requestPermissionToSendNotifications();
-      } else {
-        return;
-      }
-    }
-
-    await AwesomeNotifications().createNotification(
-      content: NotificationContent(
-        id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
-        channelKey: 'geofence_alerts',
-        title: 'Test Alert',
-        body: 'This is a test notification from the dashboard screen.',
-        notificationLayout: NotificationLayout.Default,
-      ),
-    );
-  }
-
   Future<void> _sendAbnormalNotification(String title, String body) async {
     await AwesomeNotifications().createNotification(
       content: NotificationContent(
@@ -99,24 +58,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _logAbnormalAlertToFirestore(Map<String, dynamic> data) async {
+  Future<void> _logAbnormalAlertToFirestore(
+    Map<String, dynamic> data,
+    String message,
+    String type,
+  ) async {
     final uid = user?.uid;
     if (uid == null) return;
 
-    final alertsRef = FirebaseFirestore.instance
+    await FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
-        .collection('alerts');
-
-    await alertsRef.add({
-      'heartRate': data['heartRate'],
-      'temperature': data['temperature'],
-      'bloodPressure': data['bloodPressure'],
-      'timestamp': data['timestamp'] ?? FieldValue.serverTimestamp(),
-      'latitude': data['latitude'],
-      'longitude': data['longitude'],
-      'notifiedByApp': true,
-    });
+        .collection('alerts')
+        .add({
+          'message': message,
+          'type': type,
+          'heartRate': data['heartRate'],
+          'temperature': data['temperature'],
+          'bloodPressure': data['bloodPressure'],
+          'timestamp': data['timestamp'] ?? FieldValue.serverTimestamp(),
+          'latitude': data['latitude'],
+          'longitude': data['longitude'],
+          'notifiedByApp': true,
+        });
   }
 
   @override
@@ -157,18 +121,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: StreamBuilder<QuerySnapshot>(
           stream: _getVitalsStream(),
           builder: (context, snapshot) {
-            if (snapshot.hasError) {
+            if (snapshot.hasError)
               return Center(child: Text("Error loading vitals"));
-            }
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState == ConnectionState.waiting)
               return Center(child: CircularProgressIndicator());
-            }
 
             final vitals = snapshot.data!.docs;
-
-            if (vitals.isEmpty) {
+            if (vitals.isEmpty)
               return Center(child: Text("No vitals recorded yet."));
-            }
 
             return ListView.builder(
               itemCount: vitals.length,
@@ -183,18 +143,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 final int? hr = int.tryParse(data['heartRate'] ?? '');
                 final double? temp = double.tryParse(data['temperature'] ?? '');
-                final isAbnormal =
-                    (hr != null && (hr > 120 || hr < 50)) ||
-                    (temp != null && (temp > 38.0 || temp < 35.0));
+                final String bp = data['bloodPressure'] ?? '';
+                final parts = bp.split('/');
+                final int? systolic = parts.length == 2
+                    ? int.tryParse(parts[0])
+                    : null;
+                final int? diastolic = parts.length == 2
+                    ? int.tryParse(parts[1])
+                    : null;
+
+                final bool isHrAbnormal = hr != null && (hr > 120 || hr < 50);
+                final bool isTempAbnormal =
+                    temp != null && (temp > 38.0 || temp < 35.0);
+                final bool isBpAbnormal =
+                    (systolic != null && systolic > 140) ||
+                    (diastolic != null && diastolic > 90);
+
+                final bool isAbnormal =
+                    isHrAbnormal || isTempAbnormal || isBpAbnormal;
 
                 if (isAbnormal && !_notifiedVitalIds.contains(docId)) {
                   _notifiedVitalIds.add(docId);
 
-                  final summary =
-                      'Abnormal vitals detected:\nHR: ${data['heartRate']} bpm\nTemp: ${data['temperature']} °C\nTime: $time';
+                  String body = "Abnormal ";
+                  if (isHrAbnormal) body += "Heart Rate (${hr} bpm), ";
+                  if (isTempAbnormal)
+                    body += "Temperature (${temp?.toStringAsFixed(1)}°C), ";
+                  if (isBpAbnormal) body += "Blood Pressure ($bp), ";
+                  body += "recorded at $time";
 
-                  _sendAbnormalNotification("Health Alert", summary);
-                  _logAbnormalAlertToFirestore(data);
+                  _sendAbnormalNotification("Vital Alert", body);
+                  _logAbnormalAlertToFirestore(data, body, "vitals");
                 }
 
                 return Card(
@@ -218,14 +197,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: isAbnormal ? Colors.red : Colors.black,
+                                color: isHrAbnormal ? Colors.red : Colors.black,
                               ),
                             ),
                           ],
                         ),
                         SizedBox(height: 6),
-                        Text("Blood Pressure: ${data['bloodPressure']}"),
-                        Text("Temperature: ${data['temperature']} °C"),
+                        Text(
+                          "Blood Pressure: $bp",
+                          style: TextStyle(
+                            color: isBpAbnormal ? Colors.red : Colors.black,
+                          ),
+                        ),
+                        Text(
+                          "Temperature: ${data['temperature']} °C",
+                          style: TextStyle(
+                            color: isTempAbnormal ? Colors.red : Colors.black,
+                          ),
+                        ),
                         if (data['latitude'] != null &&
                             data['longitude'] != null) ...[
                           Text(

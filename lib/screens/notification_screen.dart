@@ -53,12 +53,8 @@ class NotificationScreen extends StatelessWidget {
                   type == 'geofence' ? Icons.location_off : Icons.monitor_heart,
                   color: type == 'geofence' ? Colors.orange : Colors.red,
                 ),
-                title: Text(
-                  type == 'geofence'
-                      ? "Geofence breach detected"
-                      : "Abnormal vitals recorded",
-                ),
-                subtitle: Text("Time: $time"),
+                title: Text(data['message'] ?? 'Alert'),
+                subtitle: Text(data['details'] ?? 'Time: $time'),
                 trailing: lat != null && lng != null
                     ? IconButton(
                         icon: Icon(Icons.map),

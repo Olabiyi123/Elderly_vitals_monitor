@@ -12,6 +12,7 @@ class LocationPollingService {
   LocationPollingService._internal();
 
   Timer? _pollingTimer;
+  bool _breachDetected = false;
 
   Future<void> init() async {
     await AwesomeNotifications().initialize(null, [
@@ -39,7 +40,7 @@ class LocationPollingService {
 
       final lat = geofence['latitude'];
       final lng = geofence['longitude'];
-      final radius = geofence['radius'] ?? 300.0;
+      final radius = geofence['radius'];
 
       final distance = Geolocator.distanceBetween(
         lat,
@@ -49,9 +50,23 @@ class LocationPollingService {
       );
 
       print('Current distance from safe zone: $distance m');
-      if (distance > radius) {
-        await _sendNotification("Alert", "Elderly has exited the safe zone.");
-        await _logGeofenceAlert(position);
+
+      if (distance > radius && !_breachDetected) {
+        _breachDetected = true;
+
+        final timestamp = DateTime.now().toLocal();
+        final formattedTime = timestamp.toString().split('.')[0];
+        final latStr = position.latitude.toStringAsFixed(4);
+        final lngStr = position.longitude.toStringAsFixed(4);
+
+        final title = "Geofence Breach Detected";
+        final body =
+            "User exited safe zone at $formattedTime\nLocation: $latStr, $lngStr";
+
+        await _sendNotification(title, body);
+        await _logGeofenceAlert(position, title, body);
+      } else if (distance <= radius) {
+        _breachDetected = false; // reset if back inside
       }
     });
   }
@@ -98,7 +113,11 @@ class LocationPollingService {
     );
   }
 
-  Future<void> _logGeofenceAlert(Position position) async {
+  Future<void> _logGeofenceAlert(
+    Position position,
+    String title,
+    String details,
+  ) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
@@ -108,9 +127,11 @@ class LocationPollingService {
         .collection('alerts')
         .add({
           'type': 'geofence',
-          'timestamp': FieldValue.serverTimestamp(),
+          'message': title,
+          'details': details,
           'latitude': position.latitude,
           'longitude': position.longitude,
+          'timestamp': FieldValue.serverTimestamp(),
           'notifiedByApp': true,
         });
   }
