@@ -29,14 +29,29 @@ class LocationPollingService {
   }
 
   void startPolling() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      print("⛔ Cannot start polling: no authenticated user.");
+      return;
+    }
     _pollingTimer?.cancel();
 
     _pollingTimer = Timer.periodic(Duration(minutes: 2), (_) async {
+      print("📡 Polling started...");
+
       final position = await _getCurrentLocation();
-      if (position == null) return;
+      if (position == null) {
+        print("❌ Failed to get current location.");
+        return;
+      }
+
+      print("📍 Current Location: ${position.latitude}, ${position.longitude}");
 
       final geofence = await _getGeofence();
-      if (geofence == null) return;
+      if (geofence == null) {
+        print("⚠️ No geofence settings found.");
+        return;
+      }
 
       final lat = geofence['latitude'];
       final lng = geofence['longitude'];
@@ -49,9 +64,13 @@ class LocationPollingService {
         position.longitude,
       );
 
-      print('Current distance from safe zone: $distance m');
+      print(
+        '📏 Distance from safe zone: ${distance.toStringAsFixed(2)} meters',
+      );
+      print('📌 Radius: $radius');
 
       if (distance > radius && !_breachDetected) {
+        print("🚨 Outside safe zone! Sending notification...");
         _breachDetected = true;
 
         final timestamp = DateTime.now().toLocal();
@@ -66,7 +85,8 @@ class LocationPollingService {
         await _sendNotification(title, body);
         await _logGeofenceAlert(position, title, body);
       } else if (distance <= radius) {
-        _breachDetected = false; // reset if back inside
+        print("✅ Inside the safe zone.");
+        _breachDetected = false;
       }
     });
   }
@@ -76,15 +96,24 @@ class LocationPollingService {
   }
 
   Future<Position?> _getCurrentLocation() async {
-    final permission = await Geolocator.checkPermission();
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
-      await Geolocator.requestPermission();
+      permission = await Geolocator.requestPermission();
     }
-    if (permission == LocationPermission.deniedForever) return null;
+    if (permission == LocationPermission.deniedForever ||
+        permission == LocationPermission.denied) {
+      print("Location permission denied.");
+      return null;
+    }
 
-    return await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
+    try {
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+    } catch (e) {
+      print("Error getting location: $e");
+      return null;
+    }
   }
 
   Future<Map<String, dynamic>?> _getGeofence() async {

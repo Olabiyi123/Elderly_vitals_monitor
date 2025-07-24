@@ -1,8 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:async';
+//import '../services/location_polling_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   @override
@@ -12,11 +15,17 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   final user = FirebaseAuth.instance.currentUser;
   final Set<String> _notifiedVitalIds = {};
+  bool _fallNotified = false;
+  bool _zoneNotified = false;
+
+  StreamSubscription<DatabaseEvent>? fallSub;
 
   @override
   void initState() {
     super.initState();
     _requestNotificationPermission();
+    //LocationPollingService().startPolling();
+    _listenToRealtimeGyroAlerts();
   }
 
   void _requestNotificationPermission() async {
@@ -24,6 +33,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (!isAllowed) {
       await AwesomeNotifications().requestPermissionToSendNotifications();
     }
+  }
+
+  void _listenToRealtimeGyroAlerts() {
+    final uid = user?.uid;
+    if (uid == null) return;
+
+    final gyroRef = FirebaseDatabase.instance.ref().child('Gyro');
+    final locationRef = FirebaseDatabase.instance.ref().child('Location');
+
+    // Save subscription reference
+    fallSub = gyroRef.onValue.listen((event) async {
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (data == null) return;
+
+      final fall = data['Fall Detection']?.toString().toLowerCase();
+      final timestamp = DateTime.now().toLocal().toString().split('.')[0];
+
+      if (fall == 'true' && !_fallNotified) {
+        _fallNotified = true;
+
+        final message = "Fall detected at $timestamp";
+        await _sendAbnormalNotification("Fall Alert", message);
+        await _logRealtimeAlert("fall", "Fall Detected", message);
+
+        // 🔇 Temporarily cancel listener to avoid loop
+        await fallSub?.cancel();
+
+        // ✅ Reset fall detection in DB
+        await FirebaseDatabase.instance
+            .ref()
+            .child('Gyro')
+            .child('Fall Detection')
+            .set("false");
+
+        // 🕒 Re-attach listener after delay
+        await Future.delayed(Duration(seconds: 2));
+        _listenToRealtimeGyroAlerts(); // re-listen
+      }
+
+      if (fall == 'false') _fallNotified = false;
+    });
+
+    // Your existing locationRef listener can stay the same
+    locationRef.onValue.listen((event) async {
+      final data = event.snapshot.value as Map<dynamic, dynamic>?;
+      if (data == null) return;
+
+      final zone = data['Zone Indicator']?.toString().toUpperCase();
+      final timestamp = DateTime.now().toLocal().toString().split('.')[0];
+
+      if (zone == 'OUT OF ZONE' && !_zoneNotified) {
+        _zoneNotified = true;
+        final message = "User exited safe zone at $timestamp";
+        await _sendAbnormalNotification("Geofence Breach", message);
+        await _logRealtimeAlert("geofence", "Geofence Breach", message);
+      }
+
+      if (zone == 'INSIDE ZONE') _zoneNotified = false;
+    });
   }
 
   Stream<QuerySnapshot> _getVitalsStream() {
@@ -79,6 +147,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'timestamp': data['timestamp'] ?? FieldValue.serverTimestamp(),
           'latitude': data['latitude'],
           'longitude': data['longitude'],
+          'notifiedByApp': true,
+        });
+  }
+
+  Future<void> _logRealtimeAlert(
+    String type,
+    String message,
+    String details,
+  ) async {
+    final uid = user?.uid;
+    if (uid == null) return;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('alerts')
+        .add({
+          'type': type,
+          'message': message,
+          'details': details,
+          'timestamp': FieldValue.serverTimestamp(),
           'notifiedByApp': true,
         });
   }
@@ -165,15 +254,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 if (isAbnormal && !_notifiedVitalIds.contains(docId)) {
                   _notifiedVitalIds.add(docId);
 
-                  String body = "Abnormal ";
-                  if (isHrAbnormal) body += "Heart Rate (${hr} bpm), ";
-                  if (isTempAbnormal)
-                    body += "Temperature (${temp?.toStringAsFixed(1)}°C), ";
-                  if (isBpAbnormal) body += "Blood Pressure ($bp), ";
-                  body += "recorded at $time";
+                  Future<void> notifyAndMark() async {
+                    String body = "Abnormal ";
+                    if (isHrAbnormal) body += "Heart Rate (${hr} bpm)";
+                    if (isTempAbnormal)
+                      body += "Temperature (${temp?.toStringAsFixed(1)}°C)";
+                    if (isBpAbnormal) body += "Blood Pressure ($bp)";
 
-                  _sendAbnormalNotification("Vital Alert", body);
-                  _logAbnormalAlertToFirestore(data, body, "vitals");
+                    // Remove trailing comma and space
+                    if (body.endsWith(", ")) {
+                      body = body.substring(0, body.length - 2);
+                    }
+
+                    await _sendAbnormalNotification("Vital Alert", body);
+                    await _logAbnormalAlertToFirestore(data, body, "vitals");
+
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user!.uid)
+                        .collection('vitals')
+                        .doc(docId)
+                        .update({'notifiedByApp': true});
+                  }
+
+                  notifyAndMark();
                 }
 
                 return Card(

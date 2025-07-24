@@ -47,7 +47,7 @@ class FirestoreService {
 
     final double lat = geofence['latitude'];
     final double lng = geofence['longitude'];
-    final double radius = geofence['radius'] ?? 300.0;
+    final double radius = geofence['radius'];
 
     final distance = Geolocator.distanceBetween(
       lat,
@@ -114,6 +114,7 @@ class FirestoreService {
             'timestamp': FieldValue.serverTimestamp(),
             'latitude': position.latitude,
             'longitude': position.longitude,
+            'notifiedByApp': false,
           });
     } catch (e, stack) {
       print("🔥 Error saving vital: $e");

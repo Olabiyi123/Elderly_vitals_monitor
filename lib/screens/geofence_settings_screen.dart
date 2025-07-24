@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 class GeofenceSettingsScreen extends StatefulWidget {
   @override
@@ -28,8 +29,8 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
     final doc = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
-        .collection('geofence')
-        .doc('zone')
+        .collection('settings')
+        .doc('geofence') // FIXED path
         .get();
 
     if (doc.exists) {
@@ -54,17 +55,26 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
     final longitude = double.tryParse(_lngController.text);
     final radius = double.tryParse(_radiusController.text);
 
+    // Save to Firestore (app UI use)
     await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
-        .collection('geofence')
-        .doc('zone')
+        .collection('settings')
+        .doc('geofence')
         .set({
           'latitude': latitude,
           'longitude': longitude,
           'radius': radius,
           'updatedAt': FieldValue.serverTimestamp(),
         });
+
+    // Save to Realtime Database (for Arduino)
+    final rtdbRef = FirebaseDatabase.instance.ref();
+    await rtdbRef.child('Location').child('Safe Zone').set({
+      'latitude': latitude,
+      'longitude': longitude,
+      'radius': radius,
+    });
 
     ScaffoldMessenger.of(
       context,

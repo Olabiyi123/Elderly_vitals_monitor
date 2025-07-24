@@ -43,10 +43,34 @@ class AlertsScreen extends StatelessWidget {
                   ? "${timestamp.toLocal().toString().split('.')[0]}"
                   : "Unknown time";
 
+              final type = data['type'] ?? 'vitals';
+
+              IconData icon;
+              Color color;
+
+              switch (type) {
+                case 'geofence':
+                  icon = Icons.location_off;
+                  color = Colors.orange;
+                  break;
+                case 'fall':
+                  icon = Icons.accessibility_new;
+                  color = Colors.deepPurple;
+                  break;
+                case 'vitals':
+                default:
+                  icon = Icons.monitor_heart;
+                  color = Colors.red;
+                  break;
+              }
+
               return ListTile(
-                leading: Icon(Icons.warning, color: Colors.red),
+                leading: Icon(icon, color: color),
                 title: Text(data['message'] ?? 'Alert'),
-                subtitle: Text("Time: $time\n${data['details'] ?? ''}"),
+                subtitle: Text(
+                  "${data['details'] ?? ''}\nTime: $time",
+                  style: TextStyle(height: 1.4),
+                ),
               );
             },
           );

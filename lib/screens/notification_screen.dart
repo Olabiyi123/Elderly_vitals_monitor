@@ -50,8 +50,16 @@ class NotificationScreen extends StatelessWidget {
 
               return ListTile(
                 leading: Icon(
-                  type == 'geofence' ? Icons.location_off : Icons.monitor_heart,
-                  color: type == 'geofence' ? Colors.orange : Colors.red,
+                  type == 'geofence'
+                      ? Icons.location_off
+                      : type == 'fall'
+                      ? Icons.accessibility_new
+                      : Icons.monitor_heart,
+                  color: type == 'geofence'
+                      ? Colors.orange
+                      : type == 'fall'
+                      ? Colors.deepPurple
+                      : Colors.red,
                 ),
                 title: Text(data['message'] ?? 'Alert'),
                 subtitle: Text(data['details'] ?? 'Time: $time'),
