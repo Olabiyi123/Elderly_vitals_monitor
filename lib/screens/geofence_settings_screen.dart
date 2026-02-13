@@ -22,6 +22,14 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
     _loadGeofenceData();
   }
 
+  @override
+  void dispose() {
+    _latController.dispose();
+    _lngController.dispose();
+    _radiusController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadGeofenceData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -30,7 +38,7 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
         .collection('users')
         .doc(user.uid)
         .collection('settings')
-        .doc('geofence') // FIXED path
+        .doc('geofence')
         .get();
 
     if (doc.exists) {
@@ -55,7 +63,6 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
     final longitude = double.tryParse(_lngController.text);
     final radius = double.tryParse(_radiusController.text);
 
-    // Save to Firestore (app UI use)
     await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
@@ -68,7 +75,6 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-    // Save to Realtime Database (for Arduino)
     final rtdbRef = FirebaseDatabase.instance.ref();
     await rtdbRef.child('Location').child('Safe Zone').set({
       'latitude': latitude,
@@ -81,48 +87,134 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
     ).showSnackBar(SnackBar(content: Text('Geofence updated')));
   }
 
+  Widget _buildInputField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: TextInputType.numberWithOptions(decimal: true),
+      style: TextStyle(fontSize: 18),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide.none,
+        ),
+      ),
+      validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Edit Safe Zone')),
+      backgroundColor: Color(0xFFF2F6FA),
+
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black87,
+        title: Text(
+          'Edit Safe Zone',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    TextFormField(
-                      controller: _latController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(labelText: 'Latitude'),
-                      validator: (value) =>
-                          value == null || value.isEmpty ? 'Required' : null,
+          : Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFFF2F6FA), Color(0xFFE6EEF5)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.all(20),
+                  child: Card(
+                    elevation: 8,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
                     ),
-                    TextFormField(
-                      controller: _lngController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(labelText: 'Longitude'),
-                      validator: (value) =>
-                          value == null || value.isEmpty ? 'Required' : null,
-                    ),
-                    TextFormField(
-                      controller: _radiusController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: 'Radius (in meters)',
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Safe Zone Configuration",
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+
+                            SizedBox(height: 8),
+
+                            Text(
+                              "Set the central coordinates and radius for monitoring movement.",
+                              style: TextStyle(color: Colors.grey.shade700),
+                            ),
+
+                            SizedBox(height: 24),
+
+                            _buildInputField(
+                              controller: _latController,
+                              label: "Latitude",
+                              icon: Icons.location_on,
+                            ),
+
+                            SizedBox(height: 20),
+
+                            _buildInputField(
+                              controller: _lngController,
+                              label: "Longitude",
+                              icon: Icons.explore,
+                            ),
+
+                            SizedBox(height: 20),
+
+                            _buildInputField(
+                              controller: _radiusController,
+                              label: "Radius (meters)",
+                              icon: Icons.radio_button_checked,
+                            ),
+
+                            SizedBox(height: 30),
+
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: _saveGeofence,
+                                icon: Icon(Icons.save),
+                                label: Text(
+                                  'Save Zone',
+                                  style: TextStyle(fontSize: 18),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue[700],
+                                  padding: EdgeInsets.symmetric(vertical: 18),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(18),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      validator: (value) =>
-                          value == null || value.isEmpty ? 'Required' : null,
                     ),
-                    SizedBox(height: 20),
-                    ElevatedButton.icon(
-                      onPressed: _saveGeofence,
-                      icon: Icon(Icons.save),
-                      label: Text('Save Zone'),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
