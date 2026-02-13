@@ -38,9 +38,9 @@ class _LoginScreenState extends State<LoginScreen> {
       if (user != null) {
         Navigator.pushReplacementNamed(context, '/dashboard');
       } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Login failed.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Login failed. Check credentials.')),
+        );
       }
     }
   }
@@ -118,11 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      Icon(
-                        Icons.health_and_safety,
-                        size: 60,
-                        color: Colors.blue[700],
-                      ),
+                      Image.asset('assets/logo.png', height: 110),
 
                       SizedBox(height: 24),
 

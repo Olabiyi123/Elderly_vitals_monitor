@@ -44,9 +44,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (user != null) {
         Navigator.pushReplacementNamed(context, '/dashboard');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Registration failed. Try another email.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Registration failed.')));
       }
     }
   }
@@ -133,11 +133,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      Icon(
-                        Icons.health_and_safety,
-                        size: 60,
-                        color: Colors.blue[700],
-                      ),
+                      Image.asset('assets/logo.png', height: 110),
 
                       SizedBox(height: 24),
 
