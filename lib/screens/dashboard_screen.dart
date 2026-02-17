@@ -6,6 +6,8 @@ import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 
+import 'package:elderly_vitals_monitor/services/realtime_db_service.dart';
+
 class DashboardScreen extends StatefulWidget {
   @override
   _DashboardScreenState createState() => _DashboardScreenState();
@@ -16,6 +18,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final Set<String> _notifiedVitalIds = {};
   bool _fallNotified = false;
   bool _zoneNotified = false;
+
+  final _rtdb = RealtimeDbService();
 
   StreamSubscription<DatabaseEvent>? fallSub;
 
@@ -119,12 +123,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _sendCheckIn() async {
+    final current = FirebaseAuth.instance.currentUser;
+    final requestedBy = current?.email ?? current?.uid ?? 'caregiver';
+
+    try {
+      await _rtdb.sendCheckInRequest(requestedBy: requestedBy);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Check-in request sent')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to send check-in: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Color(0xFFF2F6FA),
 
-      // CLEAN APP BAR
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
@@ -148,12 +169,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Navigator.pushNamed(context, '/profile');
               } else if (value == 'geofence') {
                 Navigator.pushNamed(context, '/geofence-settings');
+              } else if (value == 'wifi') {
+                Navigator.pushNamed(context, '/wifi-settings');
+              } else if (value == 'home') {
+                Navigator.pushNamed(context, '/home-address');
               } else if (value == 'logout') {
                 _signOut(context);
               }
             },
             itemBuilder: (context) => [
               PopupMenuItem(value: 'profile', child: Text('Profile')),
+              PopupMenuItem(value: 'wifi', child: Text('Wi-Fi Settings')),
+              PopupMenuItem(value: 'home', child: Text('Set Home Address')),
               PopupMenuItem(value: 'geofence', child: Text('Edit Safe Zone')),
               PopupMenuItem(value: 'logout', child: Text('Sign Out')),
             ],
@@ -173,9 +200,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: EdgeInsets.all(16),
           child: Column(
             children: [
-              // 🔷 BRAND HEADER
+              // header card + check-in button
               Container(
-                margin: EdgeInsets.only(bottom: 20),
+                margin: EdgeInsets.only(bottom: 16),
                 padding: EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -190,33 +217,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 child: Row(
                   children: [
-                    Image.asset('assets/logo.png', height: 50),
-                    SizedBox(width: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Elderly Vitals Monitor",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                    Image.asset('assets/logo.png', height: 46),
+                    SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Elderly Vitals Monitor",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "Monitoring health safely",
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[600],
+                          SizedBox(height: 4),
+                          Text(
+                            "Send a check-in reminder if needed",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[700],
+                            ),
                           ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: 10),
+                    ElevatedButton(
+                      onPressed: _sendCheckIn,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue[700],
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
                         ),
-                      ],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text("Check in"),
                     ),
                   ],
                 ),
               ),
 
-              // 🔷 VITALS LIST
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
                   stream: _getVitalsStream(),
@@ -224,7 +267,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     if (snapshot.hasError) {
                       return Center(child: Text("Error loading vitals"));
                     }
-
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return Center(child: CircularProgressIndicator());
                     }
@@ -248,7 +290,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                         final timestamp = (data['timestamp'] as Timestamp?)
                             ?.toDate();
-
                         final time = timestamp != null
                             ? timestamp.toLocal().toString().split('.')[0]
                             : "Unknown";
@@ -296,6 +337,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     "Temperature: ${data['temperature']} °C",
                                     style: TextStyle(fontSize: 16),
                                   ),
+                                  if (data['latitude'] != null &&
+                                      data['longitude'] != null) ...[
+                                    SizedBox(height: 12),
+                                    ElevatedButton.icon(
+                                      onPressed: () {
+                                        final lat = data['latitude'];
+                                        final lng = data['longitude'];
+                                        final url = Uri.parse(
+                                          "https://www.google.com/maps/search/?api=1&query=$lat,$lng",
+                                        );
+                                        _launchUrl(url);
+                                      },
+                                      icon: Icon(Icons.map),
+                                      label: Text("View on Map"),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.blue[700],
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                   SizedBox(height: 12),
                                   Text(
                                     "Logged at: $time",

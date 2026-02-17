@@ -10,6 +10,8 @@ import 'screens/notification_screen.dart';
 import 'screens/alerts_screen.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 //import 'services/location_polling_service.dart';
+import 'screens/wifi_settings_screen.dart';
+import 'screens/home_address_screen.dart';
 import 'screens/geofence_settings_screen.dart';
 
 void main() async {
@@ -56,6 +58,8 @@ class ElderlyVitalsApp extends StatelessWidget {
         '/profile': (context) => ProfileScreen(),
         '/alerts': (context) => AlertsScreen(),
         '/geofence-settings': (context) => GeofenceSettingsScreen(),
+        '/wifi-settings': (context) => WifiSettingsScreen(),
+        '/home-address': (context) => HomeAddressScreen(),
         '/notifications': (_) => NotificationScreen(),
       },
       home: StreamBuilder<User?>(

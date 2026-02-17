@@ -16,6 +16,9 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
 
   bool _isLoading = true;
 
+  static const int minRadius = 50;
+  static const int stepRadius = 50;
+
   @override
   void initState() {
     super.initState();
@@ -45,12 +48,28 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
       final data = doc.data();
       _latController.text = data?['latitude']?.toString() ?? '';
       _lngController.text = data?['longitude']?.toString() ?? '';
-      _radiusController.text = data?['radius']?.toString() ?? '';
+      _radiusController.text = data?['radius']?.toString() ?? '$minRadius';
+    } else {
+      _radiusController.text = '$minRadius';
     }
 
-    setState(() {
-      _isLoading = false;
-    });
+    setState(() => _isLoading = false);
+  }
+
+  int _currentRadius() {
+    final n = int.tryParse(_radiusController.text.trim());
+    if (n == null) return minRadius;
+    return n;
+  }
+
+  void _bumpRadius(int delta) {
+    int r = _currentRadius() + delta;
+    if (r < minRadius) r = minRadius;
+
+    // snap to nearest 50
+    r = ((r + stepRadius - 1) ~/ stepRadius) * stepRadius;
+    _radiusController.text = r.toString();
+    setState(() {});
   }
 
   Future<void> _saveGeofence() async {
@@ -59,10 +78,30 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final latitude = double.tryParse(_latController.text);
-    final longitude = double.tryParse(_lngController.text);
-    final radius = double.tryParse(_radiusController.text);
+    final latitude = double.tryParse(_latController.text.trim());
+    final longitude = double.tryParse(_lngController.text.trim());
+    final radius = int.tryParse(_radiusController.text.trim());
 
+    if (latitude == null || longitude == null || radius == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Invalid values')));
+      return;
+    }
+
+    // enforce min + increments
+    if (radius < minRadius || radius % stepRadius != 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Radius must be at least $minRadius and in $stepRadius m steps',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Firestore (app UI use)
     await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
@@ -73,8 +112,9 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
           'longitude': longitude,
           'radius': radius,
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+        }, SetOptions(merge: true));
 
+    // Realtime DB (for Arduino)
     final rtdbRef = FirebaseDatabase.instance.ref();
     await rtdbRef.child('Location').child('Safe Zone').set({
       'latitude': latitude,
@@ -87,27 +127,16 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
     ).showSnackBar(SnackBar(content: Text('Geofence updated')));
   }
 
-  Widget _buildInputField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: TextInputType.numberWithOptions(decimal: true),
-      style: TextStyle(fontSize: 18),
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
-          borderSide: BorderSide.none,
-        ),
+  InputDecoration _dec(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon),
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: BorderSide.none,
       ),
-      validator: (value) => value == null || value.isEmpty ? 'Required' : null,
     );
   }
 
@@ -115,17 +144,19 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Color(0xFFF2F6FA),
-
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
-        title: Text(
-          'Edit Safe Zone',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: Text('Edit Safe Zone'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.home),
+            tooltip: 'Set Home Address',
+            onPressed: () => Navigator.pushNamed(context, '/home-address'),
+          ),
+        ],
       ),
-
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : Container(
@@ -136,82 +167,89 @@ class _GeofenceSettingsScreenState extends State<GeofenceSettingsScreen> {
                   end: Alignment.bottomCenter,
                 ),
               ),
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.all(20),
-                  child: Card(
-                    elevation: 8,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Safe Zone Configuration",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Card(
+                  elevation: 6,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Form(
+                      key: _formKey,
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          TextFormField(
+                            controller: _latController,
+                            keyboardType: TextInputType.number,
+                            decoration: _dec('Latitude', Icons.my_location),
+                            validator: (value) => value == null || value.isEmpty
+                                ? 'Required'
+                                : null,
+                          ),
+                          SizedBox(height: 12),
+                          TextFormField(
+                            controller: _lngController,
+                            keyboardType: TextInputType.number,
+                            decoration: _dec('Longitude', Icons.location_on),
+                            validator: (value) => value == null || value.isEmpty
+                                ? 'Required'
+                                : null,
+                          ),
+                          SizedBox(height: 12),
+
+                          Text(
+                            'Radius (meters) - minimum $minRadius, step $stepRadius',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Row(
+                            children: [
+                              IconButton(
+                                onPressed: () => _bumpRadius(-stepRadius),
+                                icon: Icon(Icons.remove_circle_outline),
                               ),
-                            ),
-
-                            SizedBox(height: 8),
-
-                            Text(
-                              "Set the central coordinates and radius for monitoring movement.",
-                              style: TextStyle(color: Colors.grey.shade700),
-                            ),
-
-                            SizedBox(height: 24),
-
-                            _buildInputField(
-                              controller: _latController,
-                              label: "Latitude",
-                              icon: Icons.location_on,
-                            ),
-
-                            SizedBox(height: 20),
-
-                            _buildInputField(
-                              controller: _lngController,
-                              label: "Longitude",
-                              icon: Icons.explore,
-                            ),
-
-                            SizedBox(height: 20),
-
-                            _buildInputField(
-                              controller: _radiusController,
-                              label: "Radius (meters)",
-                              icon: Icons.radio_button_checked,
-                            ),
-
-                            SizedBox(height: 30),
-
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton.icon(
-                                onPressed: _saveGeofence,
-                                icon: Icon(Icons.save),
-                                label: Text(
-                                  'Save Zone',
-                                  style: TextStyle(fontSize: 18),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.blue[700],
-                                  padding: EdgeInsets.symmetric(vertical: 18),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _radiusController,
+                                  keyboardType: TextInputType.number,
+                                  decoration: _dec('Radius', Icons.radar),
+                                  validator: (value) {
+                                    final r = int.tryParse(value ?? '');
+                                    if (r == null) return 'Required';
+                                    if (r < minRadius) return 'Min $minRadius';
+                                    if (r % stepRadius != 0)
+                                      return 'Must be in $stepRadius m steps';
+                                    return null;
+                                  },
                                 ),
                               ),
+                              IconButton(
+                                onPressed: () => _bumpRadius(stepRadius),
+                                icon: Icon(Icons.add_circle_outline),
+                              ),
+                            ],
+                          ),
+
+                          SizedBox(height: 18),
+                          ElevatedButton.icon(
+                            onPressed: _saveGeofence,
+                            icon: Icon(Icons.save),
+                            label: Text('Save Zone'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue[700],
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
