@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 
 import 'package:elderly_vitals_monitor/services/realtime_db_service.dart';
@@ -15,24 +14,30 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final user = FirebaseAuth.instance.currentUser;
-  final Set<String> _notifiedVitalIds = {};
-  bool _fallNotified = false;
-  bool _zoneNotified = false;
-
   final _rtdb = RealtimeDbService();
 
-  StreamSubscription<DatabaseEvent>? fallSub;
+  StreamSubscription<DatabaseEvent>? _gyroSub;
+  StreamSubscription<DatabaseEvent>? _locationSub;
+
+  bool _fallDetected = false;
+  bool _fallNotified = false;
+
+  String _zoneStatus = "UNINITIALIZED";
+  bool _zoneNotified = false;
+
+  DateTime? _lastDeviceUpdate;
 
   @override
   void initState() {
     super.initState();
     _requestNotificationPermission();
-    _listenToRealtimeGyroAlerts();
+    _listenToRealtimeDeviceData();
   }
 
   @override
   void dispose() {
-    fallSub?.cancel();
+    _gyroSub?.cancel();
+    _locationSub?.cancel();
     super.dispose();
   }
 
@@ -43,73 +48,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  void _listenToRealtimeGyroAlerts() {
-    final uid = user?.uid;
-    if (uid == null) return;
-
+  void _listenToRealtimeDeviceData() {
     final gyroRef = FirebaseDatabase.instance.ref().child('Gyro');
     final locationRef = FirebaseDatabase.instance.ref().child('Location');
 
-    fallSub = gyroRef.onValue.listen((event) async {
+    // ------------------ FALL DETECTION ------------------
+    _gyroSub = gyroRef.onValue.listen((event) async {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data == null) return;
 
       final fall = data['Fall Detection']?.toString().toLowerCase();
-      final timestamp = DateTime.now().toLocal().toString().split('.')[0];
+
+      setState(() {
+        _lastDeviceUpdate = DateTime.now();
+        _fallDetected = (fall == 'true');
+      });
 
       if (fall == 'true' && !_fallNotified) {
         _fallNotified = true;
 
-        final message = "Fall detected at $timestamp";
-        await _sendAbnormalNotification("Fall Alert", message);
+        final timestamp = DateTime.now().toLocal().toString().split('.')[0];
+        final title = "Fall Detected";
+        final details = "Fall detected at $timestamp";
 
-        await fallSub?.cancel();
+        await _sendAbnormalNotification(title, details);
+        await _logAlertToFirestore(
+          type: "fall",
+          title: title,
+          message: details,
+        );
+
         await FirebaseDatabase.instance
             .ref()
             .child('Gyro')
             .child('Fall Detection')
             .set("false");
-
-        await Future.delayed(Duration(seconds: 2));
-        _listenToRealtimeGyroAlerts();
       }
 
-      if (fall == 'false') _fallNotified = false;
+      if (fall == 'false') {
+        _fallNotified = false;
+      }
     });
 
-    locationRef.onValue.listen((event) async {
+    // ------------------ GEOFENCE ------------------
+    _locationSub = locationRef.onValue.listen((event) async {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data == null) return;
 
       final zone = data['Zone Indicator']?.toString().toUpperCase();
-      final timestamp = DateTime.now().toLocal().toString().split('.')[0];
 
-      if (zone == 'OUT OF ZONE' && !_zoneNotified) {
+      setState(() {
+        _lastDeviceUpdate = DateTime.now();
+        _zoneStatus = zone ?? "UNINITIALIZED";
+      });
+
+      if (_zoneStatus == 'OUT OF ZONE' && !_zoneNotified) {
         _zoneNotified = true;
-        final message = "User exited safe zone at $timestamp";
-        await _sendAbnormalNotification("Geofence Breach", message);
+
+        final timestamp = DateTime.now().toLocal().toString().split('.')[0];
+        final title = "Geofence Breach";
+        final details = "User exited safe zone at $timestamp";
+
+        await _sendAbnormalNotification(title, details);
+
+        await _logAlertToFirestore(
+          type: "geofence",
+          title: title,
+          message: details,
+        );
       }
 
-      if (zone == 'INSIDE ZONE') _zoneNotified = false;
+      if (_zoneStatus == 'INSIDE ZONE') {
+        _zoneNotified = false;
+      }
     });
   }
 
-  Stream<QuerySnapshot> _getVitalsStream() {
-    return FirebaseFirestore.instance
-        .collection('users')
-        .doc(user!.uid)
-        .collection('vitals')
-        .orderBy('timestamp', descending: true)
-        .snapshots();
-  }
-
-  void _signOut(BuildContext context) async {
-    await FirebaseAuth.instance.signOut();
-    Navigator.pushReplacementNamed(context, '/login');
-  }
-
-  Future<void> _launchUrl(Uri url) async {
-    await launchUrl(url, mode: LaunchMode.externalApplication);
+  bool get _isDeviceOnline {
+    if (_lastDeviceUpdate == null) return false;
+    return DateTime.now().difference(_lastDeviceUpdate!).inSeconds < 60;
   }
 
   Future<void> _sendAbnormalNotification(String title, String body) async {
@@ -123,6 +140,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  Future<void> _logAlertToFirestore({
+    required String type,
+    required String title,
+    required String message,
+  }) async {
+    final uid = user?.uid;
+    if (uid == null) return;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('alerts')
+        .add({
+          'type': type,
+          'title': title, // bold header
+          'message': message, // subtext
+          'timestamp': FieldValue.serverTimestamp(),
+          'notifiedByApp': true,
+        });
+  }
+
   Future<void> _sendCheckIn() async {
     final current = FirebaseAuth.instance.currentUser;
     final requestedBy = current?.email ?? current?.uid ?? 'caregiver';
@@ -130,37 +168,48 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       await _rtdb.sendCheckInRequest(requestedBy: requestedBy);
       if (!mounted) return;
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Check-in request sent')));
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Failed to send check-in: $e')));
     }
   }
 
+  void _signOut(BuildContext context) async {
+    await FirebaseAuth.instance.signOut();
+    Navigator.pushReplacementNamed(context, '/login');
+  }
+
+  Color _zoneColor() {
+    if (_zoneStatus == "INSIDE ZONE") return Colors.green;
+    if (_zoneStatus == "OUT OF ZONE") return Colors.red;
+    return Colors.grey;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Color(0xFFF2F6FA),
-
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
-        title: Text(
-          "Dashboard",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-        ),
+        title: Text("Dashboard", style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             icon: Icon(Icons.warning_amber),
+            tooltip: 'Alert History',
             onPressed: () => Navigator.pushNamed(context, '/alerts'),
           ),
           IconButton(
             icon: Icon(Icons.notifications),
+            tooltip: 'Notifications',
             onPressed: () => Navigator.pushNamed(context, '/notifications'),
           ),
           PopupMenuButton<String>(
@@ -187,208 +236,167 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFF2F6FA), Color(0xFFE6EEF5)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Column(
-            children: [
-              // header card + check-in button
-              Container(
-                margin: EdgeInsets.only(bottom: 16),
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black12,
-                      blurRadius: 6,
-                      offset: Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    Image.asset('assets/logo.png', height: 46),
-                    SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Elderly Vitals Monitor",
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            "Send a check-in reminder if needed",
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(width: 10),
-                    ElevatedButton(
-                      onPressed: _sendCheckIn,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[700],
-                        padding: EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: Text("Check in"),
-                    ),
-                  ],
-                ),
-              ),
-
-              Expanded(
-                child: StreamBuilder<QuerySnapshot>(
-                  stream: _getVitalsStream(),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Center(child: Text("Error loading vitals"));
-                    }
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return Center(child: CircularProgressIndicator());
-                    }
-
-                    final vitals = snapshot.data!.docs;
-
-                    if (vitals.isEmpty) {
-                      return Center(
-                        child: Text(
-                          "No vitals recorded yet.",
-                          style: TextStyle(fontSize: 18),
-                        ),
-                      );
-                    }
-
-                    return ListView.builder(
-                      itemCount: vitals.length,
-                      itemBuilder: (context, index) {
-                        final doc = vitals[index];
-                        final data = doc.data() as Map<String, dynamic>;
-
-                        final timestamp = (data['timestamp'] as Timestamp?)
-                            ?.toDate();
-                        final time = timestamp != null
-                            ? timestamp.toLocal().toString().split('.')[0]
-                            : "Unknown";
-
-                        return Container(
-                          margin: EdgeInsets.only(bottom: 18),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black12,
-                                blurRadius: 8,
-                                offset: Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              color: Colors.white,
-                              padding: EdgeInsets.all(20),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(Icons.favorite, color: Colors.red),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        "${data['heartRate']} bpm",
-                                        style: TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  SizedBox(height: 12),
-                                  Text(
-                                    "Blood Pressure: ${data['bloodPressure']}",
-                                    style: TextStyle(fontSize: 16),
-                                  ),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    "Temperature: ${data['temperature']} °C",
-                                    style: TextStyle(fontSize: 16),
-                                  ),
-                                  if (data['latitude'] != null &&
-                                      data['longitude'] != null) ...[
-                                    SizedBox(height: 12),
-                                    ElevatedButton.icon(
-                                      onPressed: () {
-                                        final lat = data['latitude'];
-                                        final lng = data['longitude'];
-                                        final url = Uri.parse(
-                                          "https://www.google.com/maps/search/?api=1&query=$lat,$lng",
-                                        );
-                                        _launchUrl(url);
-                                      },
-                                      icon: Icon(Icons.map),
-                                      label: Text("View on Map"),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.blue[700],
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            14,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                  SizedBox(height: 12),
-                                  Text(
-                                    "Logged at: $time",
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          children: [
+            HeaderCard(onCheckIn: _sendCheckIn),
+            SizedBox(height: 16),
+            StatusCard(
+              title: "Device Status",
+              value: _isDeviceOnline ? "ONLINE" : "OFFLINE",
+              icon: Icons.devices,
+              color: _isDeviceOnline ? Colors.green : Colors.red,
+              subtitle: _lastDeviceUpdate == null
+                  ? "No updates yet"
+                  : "Last update: ${_lastDeviceUpdate!.toLocal().toString().split('.')[0]}",
+            ),
+            SizedBox(height: 16),
+            StatusCard(
+              title: "Fall Detection",
+              value: _fallDetected ? "FALL DETECTED" : "No fall detected",
+              icon: Icons.accessibility_new,
+              color: _fallDetected ? Colors.red : Colors.green,
+              subtitle: _fallDetected
+                  ? "Immediate attention recommended"
+                  : "No active fall event",
+            ),
+            SizedBox(height: 16),
+            StatusCard(
+              title: "Safe Zone",
+              value: _zoneStatus,
+              icon: Icons.location_on,
+              color: _zoneColor(),
+              subtitle: _zoneStatus == "INSIDE ZONE"
+                  ? "User is within the safe radius"
+                  : _zoneStatus == "OUT OF ZONE"
+                  ? "User left safe area"
+                  : "Safe zone not initialized",
+            ),
+          ],
         ),
       ),
+    );
+  }
+}
 
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.pushNamed(context, '/add-vitals'),
-        icon: Icon(Icons.add),
-        label: Text("Add Vitals"),
-        backgroundColor: Colors.blue[700],
+class HeaderCard extends StatelessWidget {
+  final VoidCallback onCheckIn;
+
+  const HeaderCard({required this.onCheckIn});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Image.asset('assets/logo.png', height: 40),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Elderly Vitals Monitor",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  "Send a check-in reminder if needed",
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ),
+              ],
+            ),
+          ),
+          ElevatedButton(
+            onPressed: onCheckIn,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue[700],
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: Text("Check In"),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class StatusCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+
+  const StatusCard({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 3)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: color),
+          ),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
