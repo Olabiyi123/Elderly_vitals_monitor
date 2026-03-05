@@ -21,6 +21,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   bool _fallDetected = false;
   bool _fallNotified = false;
+  String? _lastFallEventId;
 
   String _zoneStatus = "UNINITIALIZED";
   bool _zoneNotified = false;
@@ -57,35 +58,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data == null) return;
 
-      final fall = data['Fall Detection']?.toString().toLowerCase();
+      final fallStatus = data['fallStatus']?.toString().toLowerCase() == 'true';
+      final lastFallEvent = data['lastFallEvent'];
 
       setState(() {
         _lastDeviceUpdate = DateTime.now();
-        _fallDetected = (fall == 'true');
+        _fallDetected = fallStatus;
       });
 
-      if (fall == 'true' && !_fallNotified) {
+      if (lastFallEvent != null &&
+          lastFallEvent.toString() != _lastFallEventId &&
+          fallStatus &&
+          !_fallNotified) {
+        _lastFallEventId = lastFallEvent.toString();
         _fallNotified = true;
 
         final timestamp = DateTime.now().toLocal().toString().split('.')[0];
+
         final title = "Fall Detected";
         final details = "Fall detected at $timestamp";
 
         await _sendAbnormalNotification(title, details);
+
         await _logAlertToFirestore(
           type: "fall",
           title: title,
           message: details,
         );
-
-        await FirebaseDatabase.instance
-            .ref()
-            .child('Gyro')
-            .child('Fall Detection')
-            .set("false");
       }
 
-      if (fall == 'false') {
+      if (!fallStatus) {
         _fallNotified = false;
       }
     });
@@ -106,6 +108,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _zoneNotified = true;
 
         final timestamp = DateTime.now().toLocal().toString().split('.')[0];
+
         final title = "Geofence Breach";
         final details = "User exited safe zone at $timestamp";
 
@@ -154,8 +157,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         .collection('alerts')
         .add({
           'type': type,
-          'title': title, // bold header
-          'message': message, // subtext
+          'title': title,
+          'message': message,
           'timestamp': FieldValue.serverTimestamp(),
           'notifiedByApp': true,
         });
@@ -254,11 +257,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             SizedBox(height: 16),
             StatusCard(
               title: "Fall Detection",
-              value: _fallDetected ? "FALL DETECTED" : "No fall detected",
+              value: _fallDetected ? "FALL DETECTED" : "No Fall Detected",
               icon: Icons.accessibility_new,
               color: _fallDetected ? Colors.red : Colors.green,
               subtitle: _fallDetected
-                  ? "Immediate attention recommended"
+                  ? "Immediate attention needed"
                   : "No active fall event",
             ),
             SizedBox(height: 16),
@@ -305,7 +308,7 @@ class HeaderCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Elderly Vitals Monitor",
+                  "GuardianCare",
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 SizedBox(height: 4),

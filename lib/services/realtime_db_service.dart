@@ -4,7 +4,7 @@ class RealtimeDbService {
   final FirebaseDatabase _db = FirebaseDatabase.instance;
 
   DatabaseReference get _wifiRef => _db.ref('WiFi');
-  DatabaseReference get _safeZoneRef => _db.ref('Location/Safe Zone');
+  DatabaseReference get _safeZoneRef => _db.ref('Location/SafeZone');
   DatabaseReference get _checkInRef => _db.ref('CheckIn');
 
   Future<Map<String, dynamic>?> getWifi() async {
