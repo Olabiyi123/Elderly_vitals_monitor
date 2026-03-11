@@ -5,7 +5,6 @@ class RealtimeDbService {
 
   DatabaseReference get _wifiRef => _db.ref('WiFi');
   DatabaseReference get _safeZoneRef => _db.ref('Location/SafeZone');
-  DatabaseReference get _checkInRef => _db.ref('CheckIn');
 
   Future<Map<String, dynamic>?> getWifi() async {
     final snap = await _wifiRef.get();
@@ -51,18 +50,4 @@ class RealtimeDbService {
     }
     return null;
   }
-
-  Future<void> sendCheckInRequest({required String requestedBy}) async {
-    await _checkInRef.child('request').set({
-      'active': true,
-      'requestedBy': requestedBy,
-      'requestedAt': ServerValue.timestamp,
-    });
-  }
-
-  Future<void> clearCheckInRequest() async {
-    await _checkInRef.child('request').update({'active': false});
-  }
-
-  Stream<DatabaseEvent> checkInStream() => _checkInRef.onValue;
 }

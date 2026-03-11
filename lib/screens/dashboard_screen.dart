@@ -5,8 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'dart:async';
 
-import 'package:elderly_vitals_monitor/services/realtime_db_service.dart';
-
 class DashboardScreen extends StatefulWidget {
   @override
   _DashboardScreenState createState() => _DashboardScreenState();
@@ -14,7 +12,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final user = FirebaseAuth.instance.currentUser;
-  final _rtdb = RealtimeDbService();
 
   StreamSubscription<DatabaseEvent>? _gyroSub;
   StreamSubscription<DatabaseEvent>? _locationSub;
@@ -24,9 +21,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? _lastFallEventId;
 
   String _zoneStatus = "UNINITIALIZED";
-  bool _zoneNotified = false;
 
   DateTime? _lastDeviceUpdate;
+
+  double? _latitude;
+  double? _longitude;
 
   @override
   void initState() {
@@ -53,7 +52,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final gyroRef = FirebaseDatabase.instance.ref().child('Gyro');
     final locationRef = FirebaseDatabase.instance.ref().child('Location');
 
-    // ------------------ FALL DETECTION ------------------
+    /// FALL DETECTION
     _gyroSub = gyroRef.onValue.listen((event) async {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data == null) return;
@@ -75,15 +74,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         final timestamp = DateTime.now().toLocal().toString().split('.')[0];
 
-        final title = "Fall Detected";
-        final details = "Fall detected at $timestamp";
-
-        await _sendAbnormalNotification(title, details);
+        await _sendAbnormalNotification(
+          "Fall Detected",
+          "Fall detected at $timestamp",
+        );
 
         await _logAlertToFirestore(
           type: "fall",
-          title: title,
-          message: details,
+          title: "Fall Detected",
+          message: "Fall detected at $timestamp",
         );
       }
 
@@ -92,37 +91,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     });
 
-    // ------------------ GEOFENCE ------------------
+    /// LOCATION + GEOFENCE
     _locationSub = locationRef.onValue.listen((event) async {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data == null) return;
 
       final zone = data['Zone Indicator']?.toString().toUpperCase();
 
+      final safeZone = data['SafeZone'];
+      final lat = safeZone?['latitude'];
+      final lon = safeZone?['longitude'];
+
       setState(() {
         _lastDeviceUpdate = DateTime.now();
         _zoneStatus = zone ?? "UNINITIALIZED";
+
+        if (lat != null && lon != null) {
+          _latitude = double.tryParse(lat.toString());
+          _longitude = double.tryParse(lon.toString());
+        }
       });
 
-      if (_zoneStatus == 'OUT OF ZONE' && !_zoneNotified) {
-        _zoneNotified = true;
-
+      if (_zoneStatus == 'OUT OF ZONE') {
         final timestamp = DateTime.now().toLocal().toString().split('.')[0];
 
-        final title = "Geofence Breach";
-        final details = "User exited safe zone at $timestamp";
-
-        await _sendAbnormalNotification(title, details);
+        await _sendAbnormalNotification(
+          "Geofence Breach",
+          "User exited safe zone at $timestamp",
+        );
 
         await _logAlertToFirestore(
           type: "geofence",
-          title: title,
-          message: details,
+          title: "Geofence Breach",
+          message: "User exited safe zone at $timestamp",
         );
-      }
-
-      if (_zoneStatus == 'INSIDE ZONE') {
-        _zoneNotified = false;
       }
     });
   }
@@ -164,26 +166,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         });
   }
 
-  Future<void> _sendCheckIn() async {
-    final current = FirebaseAuth.instance.currentUser;
-    final requestedBy = current?.email ?? current?.uid ?? 'caregiver';
-
-    try {
-      await _rtdb.sendCheckInRequest(requestedBy: requestedBy);
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Check-in request sent')));
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to send check-in: $e')));
-    }
-  }
-
   void _signOut(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
     Navigator.pushReplacementNamed(context, '/login');
@@ -193,6 +175,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_zoneStatus == "INSIDE ZONE") return Colors.green;
     if (_zoneStatus == "OUT OF ZONE") return Colors.red;
     return Colors.grey;
+  }
+
+  String _lastLocationText() {
+    if (_latitude == null || _longitude == null) {
+      return "Location unavailable";
+    }
+    return "${_latitude!.toStringAsFixed(5)}, ${_longitude!.toStringAsFixed(5)}";
   }
 
   @override
@@ -205,11 +194,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         foregroundColor: Colors.black87,
         title: Text("Dashboard", style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
-          IconButton(
+          /*IconButton(
             icon: Icon(Icons.warning_amber),
             tooltip: 'Alert History',
             onPressed: () => Navigator.pushNamed(context, '/alerts'),
-          ),
+          ),*/
           IconButton(
             icon: Icon(Icons.notifications),
             tooltip: 'Notifications',
@@ -243,8 +232,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
-            HeaderCard(onCheckIn: _sendCheckIn),
+            /// HEADER
+            HeaderCard(lastLocation: _lastLocationText()),
+
             SizedBox(height: 16),
+
             StatusCard(
               title: "Device Status",
               value: _isDeviceOnline ? "ONLINE" : "OFFLINE",
@@ -254,7 +246,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ? "No updates yet"
                   : "Last update: ${_lastDeviceUpdate!.toLocal().toString().split('.')[0]}",
             ),
+
             SizedBox(height: 16),
+
             StatusCard(
               title: "Fall Detection",
               value: _fallDetected ? "FALL DETECTED" : "No Fall Detected",
@@ -264,7 +258,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ? "Immediate attention needed"
                   : "No active fall event",
             ),
+
             SizedBox(height: 16),
+
             StatusCard(
               title: "Safe Zone",
               value: _zoneStatus,
@@ -284,9 +280,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 }
 
 class HeaderCard extends StatelessWidget {
-  final VoidCallback onCheckIn;
+  final String lastLocation;
 
-  const HeaderCard({required this.onCheckIn});
+  const HeaderCard({required this.lastLocation});
 
   @override
   Widget build(BuildContext context) {
@@ -309,26 +305,19 @@ class HeaderCard extends StatelessWidget {
               children: [
                 Text(
                   "GuardianCare",
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
                 SizedBox(height: 4),
                 Text(
-                  "Send a check-in reminder if needed",
+                  "Last Known Location",
                   style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ),
+                Text(
+                  lastLocation,
+                  style: TextStyle(fontSize: 12, color: Colors.black87),
                 ),
               ],
             ),
-          ),
-          ElevatedButton(
-            onPressed: onCheckIn,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue[700],
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: Text("Check In"),
           ),
         ],
       ),
